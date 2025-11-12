@@ -256,10 +256,9 @@ async def analyze_advertisement(
         # Step 5: Generate improvement suggestions
         logger.info("Step 5: Generating suggestions")
         suggestions = make_suggestions(
-            recall_score=recall_data['score'],
-            text_tokens=text_tokens,
-            salience_data=salience_data,
-            env_params=env_params.dict()
+            recall_data,
+            ocr_result,
+            salience_data
         )
 
         # Step 6: Build artifacts (PDF report + comparison video)
