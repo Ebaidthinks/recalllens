@@ -265,21 +265,15 @@ async def analyze_advertisement(
         logger.info("Step 6: Building artifacts")
         artifacts = build_artifacts(
             job_id=job_id,
-            original_path=str(input_path),
-            simulated_path=simulated_image_path,
-            analysis_data={
-                'recall_data': recall_data,
-                'text_tokens': text_tokens,
-                'salience_data': salience_data,
-                'suggestions': suggestions,
-                'env_params': env_params.dict()
-            },
+            sim_result=simulation_result,
+            sal_result=salience_data,
+            ocr_result=ocr_result,
+            recall_dict=recall_data,
+            suggestions=suggestions,
             output_dir=str(OUTPUT_DIR)
         )
 
-        # Add simulation video to artifacts if available
-        if simulation_result['video_path']:
-            artifacts['simulation_video'] = f"/files/{Path(simulation_result['video_path']).name}"
+        # Simulation video and heatmap already included in artifacts
 
         # Calculate processing time
         end_time = datetime.utcnow()
