@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+numpy
+opencv-python
+Pillow
+torch
+torchvision
+transformers
+paddleocr
+scikit-image
+scipy
+ffmpeg-python
+reportlab
+pydantic
+python-multipart
+pytorch-grad-cam
