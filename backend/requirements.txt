@@ -12,5 +12,6 @@ scipy
 ffmpeg-python
 reportlab
 pydantic
+pydantic-settings
 python-multipart
 pytorch-grad-cam
