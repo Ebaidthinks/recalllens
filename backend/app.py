@@ -108,6 +108,9 @@ class TextToken(BaseModel):
     confidence: float
     bbox: List[int]
     legible: bool
+    direction: Optional[str] = 'ltr'
+    height_px: Optional[int] = 0
+    width_px: Optional[int] = 0
 
 
 class SalienceData(BaseModel):
@@ -231,7 +234,8 @@ async def analyze_advertisement(
 
         # Step 2: Extract text tokens with OCR
         logger.info("Step 2: Extracting text with OCR")
-        text_tokens = extract_text_tokens(simulated_image_path)
+        ocr_result = extract_text_tokens(simulation_result['frames'])
+        text_tokens = ocr_result['words_detected']
 
         # Step 3: Analyze visual salience (attention heatmap)
         logger.info("Step 3: Analyzing visual salience")
@@ -288,7 +292,9 @@ async def analyze_advertisement(
             'legible_count': sum(1 for t in text_tokens if t['legible']),
             'illegible_count': sum(1 for t in text_tokens if not t['legible']),
             'avg_confidence': sum(t['confidence'] for t in text_tokens) / len(text_tokens) if text_tokens else 0,
-            'legibility_rate': (sum(1 for t in text_tokens if t['legible']) / len(text_tokens) * 100) if text_tokens else 0
+            'legibility_rate': (sum(1 for t in text_tokens if t['legible']) / len(text_tokens) * 100) if text_tokens else 0,
+            'logo_visible': ocr_result['logo_visible'],
+            'brand_color_match': ocr_result['brand_color_match']
         }
 
         logger.info(f"Analysis complete for job {job_id}")
