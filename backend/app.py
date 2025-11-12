@@ -248,15 +248,15 @@ async def analyze_advertisement(
         # Step 4: Compute memory recall score
         logger.info("Step 4: Computing recall score")
         recall_data = compute_recall(
-            text_tokens=text_tokens,
-            salience_data=salience_data,
-            env_params=env_params.dict()
+            ocr_result,
+            salience_data,
+            simulated_image_path
         )
 
         # Step 5: Generate improvement suggestions
         logger.info("Step 5: Generating suggestions")
         suggestions = make_suggestions(
-            recall_score=recall_data['recall_score'],
+            recall_score=recall_data['score'],
             text_tokens=text_tokens,
             salience_data=salience_data,
             env_params=env_params.dict()
@@ -303,8 +303,8 @@ async def analyze_advertisement(
         return AnalysisResponse(
             job_id=job_id,
             status="completed",
-            recall_score=recall_data['recall_score'],
-            predicted_gist=recall_data['predicted_gist'],
+            recall_score=recall_data['score'],
+            predicted_gist=recall_data['memory_summary']['predicted_gist'],
             legibility_data=legibility_data,
             text_tokens=[TextToken(**t) for t in text_tokens],
             salience_data=SalienceData(**salience_data),
