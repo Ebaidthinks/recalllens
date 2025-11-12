@@ -221,12 +221,13 @@ async def analyze_advertisement(
 
         # Step 1: Simulate view with motion blur
         logger.info("Step 1: Simulating driver view")
-        simulated_image_path = simulate_view(
+        simulation_result = simulate_view(
             str(input_path),
-            job_id,
             env_params.dict(),
+            job_id,
             str(OUTPUT_DIR)
         )
+        simulated_image_path = simulation_result['representative_frame_path']
 
         # Step 2: Extract text tokens with OCR
         logger.info("Step 2: Extracting text with OCR")
@@ -272,6 +273,10 @@ async def analyze_advertisement(
             },
             output_dir=str(OUTPUT_DIR)
         )
+
+        # Add simulation video to artifacts if available
+        if simulation_result['video_path']:
+            artifacts['simulation_video'] = f"/files/{Path(simulation_result['video_path']).name}"
 
         # Calculate processing time
         end_time = datetime.utcnow()
