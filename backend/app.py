@@ -5,9 +5,13 @@ Simulates how drivers see outdoor ads at highway speeds
 
 import os
 import uuid
+import time
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from PIL import Image
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +19,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 import logging
+import asyncio
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 # Import service functions
 from services.simulate import simulate_view
@@ -24,9 +30,16 @@ from services.memory import compute_recall
 from services.suggest import make_suggestions
 from services.report import build_artifacts
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
+
+# Analysis timeout (60 seconds)
+ANALYSIS_TIMEOUT = 60
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -168,10 +181,212 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {
+    """
+    Comprehensive health check endpoint.
+    Validates all critical dependencies and resources.
+    """
+    health_status = {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "checks": {}
+    }
+
+    all_healthy = True
+
+    # Check 1: PaddleOCR availability
+    try:
+        from paddleocr import PaddleOCR
+        health_status["checks"]["paddleocr"] = {
+            "status": "ok",
+            "message": "PaddleOCR module loaded successfully"
+        }
+        logger.debug("Health check: PaddleOCR OK")
+    except Exception as e:
+        health_status["checks"]["paddleocr"] = {
+            "status": "error",
+            "message": f"PaddleOCR not available: {str(e)}"
+        }
+        all_healthy = False
+        logger.error(f"Health check: PaddleOCR FAILED - {str(e)}")
+
+    # Check 2: PyTorch and ResNet50 model availability
+    try:
+        import torch
+        import torchvision.models as models
+        # Just check if we can import, don't actually load the model
+        health_status["checks"]["resnet50"] = {
+            "status": "ok",
+            "message": "PyTorch and ResNet50 available",
+            "cuda_available": torch.cuda.is_available()
+        }
+        logger.debug("Health check: ResNet50 OK")
+    except Exception as e:
+        health_status["checks"]["resnet50"] = {
+            "status": "error",
+            "message": f"PyTorch/ResNet50 not available: {str(e)}"
+        }
+        all_healthy = False
+        logger.error(f"Health check: ResNet50 FAILED - {str(e)}")
+
+    # Check 3: FFmpeg availability
+    try:
+        result = subprocess.run(
+            ['ffmpeg', '-version'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            version_line = result.stdout.split('\n')[0]
+            health_status["checks"]["ffmpeg"] = {
+                "status": "ok",
+                "message": "FFmpeg available",
+                "version": version_line
+            }
+            logger.debug("Health check: FFmpeg OK")
+        else:
+            health_status["checks"]["ffmpeg"] = {
+                "status": "error",
+                "message": "FFmpeg command failed"
+            }
+            all_healthy = False
+            logger.error("Health check: FFmpeg FAILED - command returned non-zero")
+    except FileNotFoundError:
+        health_status["checks"]["ffmpeg"] = {
+            "status": "error",
+            "message": "FFmpeg not installed"
+        }
+        all_healthy = False
+        logger.error("Health check: FFmpeg FAILED - not found")
+    except Exception as e:
+        health_status["checks"]["ffmpeg"] = {
+            "status": "error",
+            "message": f"FFmpeg check failed: {str(e)}"
+        }
+        all_healthy = False
+        logger.error(f"Health check: FFmpeg FAILED - {str(e)}")
+
+    # Check 4: Write permissions for assets directory
+    try:
+        test_file = UPLOAD_DIR / ".write_test"
+        test_file.write_text("test")
+        test_file.unlink()
+
+        test_file = OUTPUT_DIR / ".write_test"
+        test_file.write_text("test")
+        test_file.unlink()
+
+        health_status["checks"]["filesystem"] = {
+            "status": "ok",
+            "message": "Write permissions OK",
+            "upload_dir": str(UPLOAD_DIR),
+            "output_dir": str(OUTPUT_DIR)
+        }
+        logger.debug("Health check: Filesystem permissions OK")
+    except Exception as e:
+        health_status["checks"]["filesystem"] = {
+            "status": "error",
+            "message": f"Write permission error: {str(e)}"
+        }
+        all_healthy = False
+        logger.error(f"Health check: Filesystem FAILED - {str(e)}")
+
+    # Set overall status
+    if not all_healthy:
+        health_status["status"] = "unhealthy"
+
+    return health_status
+
+
+def _run_analysis_pipeline(
+    job_id: str,
+    input_path: Path,
+    env_params: EnvironmentParams,
+    output_dir: str
+) -> Dict[str, Any]:
+    """
+    Internal function to run the analysis pipeline.
+    Separated to enable timeout handling.
+    """
+    timings = {}
+
+    # Step 1: Simulate view with motion blur
+    step_start = time.time()
+    logger.info(f"[{job_id}] Step 1/6: Simulating driver view")
+    simulation_result = simulate_view(
+        str(input_path),
+        env_params.dict(),
+        job_id,
+        output_dir
+    )
+    timings['simulation'] = time.time() - step_start
+    logger.info(f"[{job_id}] Step 1 completed in {timings['simulation']:.2f}s")
+
+    simulated_image_path = simulation_result['representative_frame_path']
+
+    # Step 2: Extract text tokens with OCR
+    step_start = time.time()
+    logger.info(f"[{job_id}] Step 2/6: Extracting text with OCR")
+    ocr_result = extract_text_tokens(simulation_result['frames'])
+    timings['ocr'] = time.time() - step_start
+    logger.info(f"[{job_id}] Step 2 completed in {timings['ocr']:.2f}s - Found {len(ocr_result['words_detected'])} text elements")
+
+    # Step 3: Analyze visual salience (attention heatmap)
+    step_start = time.time()
+    logger.info(f"[{job_id}] Step 3/6: Analyzing visual salience")
+    salience_data = analyze_salience(
+        simulated_image_path,
+        job_id,
+        output_dir
+    )
+    timings['salience'] = time.time() - step_start
+    logger.info(f"[{job_id}] Step 3 completed in {timings['salience']:.2f}s")
+
+    # Step 4: Compute memory recall score
+    step_start = time.time()
+    logger.info(f"[{job_id}] Step 4/6: Computing recall score")
+    recall_data = compute_recall(
+        ocr_result,
+        salience_data,
+        simulated_image_path
+    )
+    timings['memory'] = time.time() - step_start
+    logger.info(f"[{job_id}] Step 4 completed in {timings['memory']:.2f}s - Score: {recall_data['score']:.1f}")
+
+    # Step 5: Generate improvement suggestions
+    step_start = time.time()
+    logger.info(f"[{job_id}] Step 5/6: Generating suggestions")
+    suggestions = make_suggestions(
+        recall_data,
+        ocr_result,
+        salience_data
+    )
+    timings['suggestions'] = time.time() - step_start
+    logger.info(f"[{job_id}] Step 5 completed in {timings['suggestions']:.2f}s - {len(suggestions)} recommendations")
+
+    # Step 6: Build artifacts (PDF report + comparison video)
+    step_start = time.time()
+    logger.info(f"[{job_id}] Step 6/6: Building artifacts")
+    artifacts = build_artifacts(
+        job_id=job_id,
+        sim_result=simulation_result,
+        sal_result=salience_data,
+        ocr_result=ocr_result,
+        recall_dict=recall_data,
+        suggestions=suggestions,
+        output_dir=output_dir
+    )
+    timings['artifacts'] = time.time() - step_start
+    logger.info(f"[{job_id}] Step 6 completed in {timings['artifacts']:.2f}s")
+
+    return {
+        'simulation_result': simulation_result,
+        'ocr_result': ocr_result,
+        'salience_data': salience_data,
+        'recall_data': recall_data,
+        'suggestions': suggestions,
+        'artifacts': artifacts,
+        'timings': timings
     }
 
 
@@ -189,13 +404,19 @@ async def analyze_advertisement(
 
     This endpoint simulates how a driver would perceive the ad at highway speeds,
     analyzes text legibility, visual salience, and predicts memory recall.
+
+    Maximum processing time: 60 seconds (will timeout if exceeded)
     """
     start_time = datetime.utcnow()
+    job_id = None
 
     try:
         # Generate unique job ID
         job_id = str(uuid.uuid4())
+        logger.info(f"="*80)
         logger.info(f"Starting analysis job {job_id}")
+        logger.info(f"Parameters: speed={speed_kmh}km/h, distance={view_distance_m}m, dwell={dwell_sec}s, lighting={lighting}, distraction={phone_distraction}")
+        logger.info(f"="*80)
 
         # Validate image file
         if not image.content_type or not image.content_type.startswith('image/'):
@@ -220,64 +441,87 @@ async def analyze_advertisement(
         with open(input_path, "wb") as f:
             content = await image.read()
             f.write(content)
-        logger.info(f"Saved uploaded file: {input_path}")
+        logger.info(f"[{job_id}] Saved uploaded file: {input_path} ({len(content)} bytes)")
 
-        # Step 1: Simulate view with motion blur
-        logger.info("Step 1: Simulating driver view")
-        simulation_result = simulate_view(
-            str(input_path),
-            env_params.dict(),
-            job_id,
-            str(OUTPUT_DIR)
-        )
-        simulated_image_path = simulation_result['representative_frame_path']
+        # Validate image dimensions (should be portrait-ish for lamppost format)
+        try:
+            with Image.open(input_path) as img:
+                width, height = img.size
+                aspect_ratio = height / width
+                logger.info(f"[{job_id}] Image dimensions: {width}x{height} (aspect ratio: {aspect_ratio:.2f})")
 
-        # Step 2: Extract text tokens with OCR
-        logger.info("Step 2: Extracting text with OCR")
-        ocr_result = extract_text_tokens(simulation_result['frames'])
+                # Warn if image is landscape (typical billboards are portrait or square)
+                if aspect_ratio < 0.7:
+                    logger.warning(f"[{job_id}] Image is very landscape ({width}x{height}). Lamppost ads are typically portrait/square. Proceeding anyway.")
+
+                # Check minimum dimensions
+                if width < 100 or height < 100:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Image too small ({width}x{height}). Minimum 100x100 pixels required."
+                    )
+
+                # Check maximum dimensions (to prevent memory issues)
+                if width > 8000 or height > 8000:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Image too large ({width}x{height}). Maximum 8000x8000 pixels."
+                    )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"[{job_id}] Failed to validate image: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid image file: {str(e)}"
+            )
+
+        # Run analysis pipeline with timeout
+        logger.info(f"[{job_id}] Starting analysis pipeline (timeout: {ANALYSIS_TIMEOUT}s)")
+
+        try:
+            # Use ThreadPoolExecutor to run pipeline with timeout
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(
+                    _run_analysis_pipeline,
+                    job_id,
+                    input_path,
+                    env_params,
+                    str(OUTPUT_DIR)
+                )
+
+                # Wait for result with timeout
+                pipeline_result = future.result(timeout=ANALYSIS_TIMEOUT)
+
+        except FuturesTimeoutError:
+            logger.error(f"[{job_id}] Analysis timed out after {ANALYSIS_TIMEOUT} seconds")
+            raise HTTPException(
+                status_code=status.HTTP_408_REQUEST_TIMEOUT,
+                detail=f"Analysis timed out after {ANALYSIS_TIMEOUT} seconds. Try with a smaller image or different parameters."
+            )
+
+        # Extract results from pipeline
+        simulation_result = pipeline_result['simulation_result']
+        ocr_result = pipeline_result['ocr_result']
+        salience_data = pipeline_result['salience_data']
+        recall_data = pipeline_result['recall_data']
+        suggestions = pipeline_result['suggestions']
+        artifacts = pipeline_result['artifacts']
+        timings = pipeline_result['timings']
+
         text_tokens = ocr_result['words_detected']
-
-        # Step 3: Analyze visual salience (attention heatmap)
-        logger.info("Step 3: Analyzing visual salience")
-        salience_data = analyze_salience(
-            simulated_image_path,
-            job_id,
-            str(OUTPUT_DIR)
-        )
-
-        # Step 4: Compute memory recall score
-        logger.info("Step 4: Computing recall score")
-        recall_data = compute_recall(
-            ocr_result,
-            salience_data,
-            simulated_image_path
-        )
-
-        # Step 5: Generate improvement suggestions
-        logger.info("Step 5: Generating suggestions")
-        suggestions = make_suggestions(
-            recall_data,
-            ocr_result,
-            salience_data
-        )
-
-        # Step 6: Build artifacts (PDF report + comparison video)
-        logger.info("Step 6: Building artifacts")
-        artifacts = build_artifacts(
-            job_id=job_id,
-            sim_result=simulation_result,
-            sal_result=salience_data,
-            ocr_result=ocr_result,
-            recall_dict=recall_data,
-            suggestions=suggestions,
-            output_dir=str(OUTPUT_DIR)
-        )
-
-        # Simulation video and heatmap already included in artifacts
 
         # Calculate processing time
         end_time = datetime.utcnow()
         processing_time_ms = (end_time - start_time).total_seconds() * 1000
+
+        # Log timing breakdown
+        total_pipeline_time = sum(timings.values())
+        logger.info(f"[{job_id}] Timing breakdown:")
+        for step, duration in timings.items():
+            logger.info(f"  - {step}: {duration:.2f}s ({duration/total_pipeline_time*100:.1f}%)")
+        logger.info(f"[{job_id}] Total processing time: {processing_time_ms:.0f}ms")
 
         # Prepare legibility data
         legibility_data = {
@@ -290,7 +534,8 @@ async def analyze_advertisement(
             'brand_color_match': ocr_result['brand_color_match']
         }
 
-        logger.info(f"Analysis complete for job {job_id}")
+        logger.info(f"[{job_id}] ✓ Analysis complete - Score: {recall_data['score']:.1f}/100")
+        logger.info(f"="*80)
 
         # Return response
         return AnalysisResponse(
