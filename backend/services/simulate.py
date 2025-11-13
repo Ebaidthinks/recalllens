@@ -1,14 +1,81 @@
 """
 Simulate driver view with motion blur and environmental effects using realistic CV techniques
+
+Includes Dubai-specific presets for common highways and lighting conditions.
 """
 
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# Dubai Road Presets
+# These configurations are calibrated for typical viewing conditions on Dubai highways
+DUBAI_ROAD_PRESETS = {
+    'szr': {
+        'name': 'Sheikh Zayed Road (SZR)',
+        'speed_kmh': 120.0,
+        'view_distance_m': 40.0,
+        'dwell_sec': 0.8,  # Brief due to high speed
+        'lighting': 'dubai_day',
+        'phone_distraction': 'med',
+        'description': 'High-speed highway with intense sun glare and long viewing distances'
+    },
+    'al_khail': {
+        'name': 'Al Khail Road',
+        'speed_kmh': 100.0,
+        'view_distance_m': 35.0,
+        'dwell_sec': 1.0,
+        'lighting': 'dubai_day',
+        'phone_distraction': 'low',
+        'description': 'Major highway with moderate speed and good visibility'
+    },
+    'jbr': {
+        'name': 'JBR Urban (Jumeirah Beach)',
+        'speed_kmh': 60.0,
+        'view_distance_m': 25.0,
+        'dwell_sec': 1.5,
+        'lighting': 'day',
+        'phone_distraction': 'low',
+        'description': 'Urban setting with slower traffic and closer viewing'
+    },
+    'marina': {
+        'name': 'Dubai Marina',
+        'speed_kmh': 60.0,
+        'view_distance_m': 20.0,
+        'dwell_sec': 1.8,
+        'lighting': 'day',
+        'phone_distraction': 'med',
+        'description': 'Dense urban area with pedestrians and heavy traffic'
+    }
+}
+
+
+def get_dubai_preset(preset_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Get Dubai road preset configuration.
+
+    Args:
+        preset_name: Name of preset ('szr', 'al_khail', 'jbr', 'marina')
+
+    Returns:
+        Dictionary with preset parameters, or None if not found
+    """
+    return DUBAI_ROAD_PRESETS.get(preset_name.lower())
+
+
+def list_dubai_presets() -> List[Dict[str, Any]]:
+    """
+    List all available Dubai road presets.
+
+    Returns:
+        List of preset configurations with metadata
+    """
+    return [{'id': key, **value} for key, value in DUBAI_ROAD_PRESETS.items()]
 
 
 def _motion_blur(img: np.ndarray, speed_kmh: float) -> np.ndarray:
@@ -103,10 +170,11 @@ def _atmospheric_effect(img: np.ndarray, lighting: str) -> np.ndarray:
     Apply atmospheric and lighting effects based on time of day.
 
     Simulates how lighting conditions affect color perception and contrast.
+    Includes Dubai-specific lighting conditions with intense sun and glare.
 
     Args:
         img: Input image (BGR)
-        lighting: Lighting condition ('day', 'dusk', 'night')
+        lighting: Lighting condition ('day', 'dusk', 'night', 'dubai_day', 'dubai_dusk', 'dubai_night')
 
     Returns:
         Image with lighting effects applied
@@ -117,6 +185,30 @@ def _atmospheric_effect(img: np.ndarray, lighting: str) -> np.ndarray:
         # Day: Slight atmospheric haze from distance
         # Minimal Gaussian blur to simulate air turbulence
         result = cv2.GaussianBlur(result, (3, 3), 0.5)
+
+    elif lighting == 'dubai_day':
+        # Dubai Day: Intense sunlight with high glare and heat haze
+        # Characteristic of desert climate with strong direct sunlight
+
+        # Increase brightness (intense sun)
+        result = result * 1.15
+
+        # Add glare effect - blow out highlights (overexposure simulation)
+        # Areas above threshold get washed out
+        bright_mask = result > 200
+        result[bright_mask] = result[bright_mask] * 1.2
+
+        # Warm color shift (desert sun has warm temperature)
+        result[:, :, 2] = result[:, :, 2] * 1.1  # Increase red
+        result[:, :, 1] = result[:, :, 1] * 1.05  # Slight increase green
+        result[:, :, 0] = result[:, :, 0] * 0.92  # Decrease blue
+
+        # Heat haze - stronger atmospheric blur
+        result = cv2.GaussianBlur(result, (5, 5), 0.8)
+
+        # Reduce contrast slightly (atmospheric scattering)
+        mean_val = np.mean(result)
+        result = (result - mean_val) * 0.9 + mean_val
 
     elif lighting == 'dusk':
         # Dusk: Warm color temperature + reduced brightness + more haze
@@ -130,6 +222,25 @@ def _atmospheric_effect(img: np.ndarray, lighting: str) -> np.ndarray:
 
         # More atmospheric blur
         result = cv2.GaussianBlur(result, (5, 5), 1.0)
+
+    elif lighting == 'dubai_dusk':
+        # Dubai Dusk: Golden hour with warm tones, reduced but still good visibility
+        # Dubai's desert location creates spectacular golden hour lighting
+
+        # Strong warm color shift (golden hour)
+        result[:, :, 2] = result[:, :, 2] * 1.25  # Strong red boost
+        result[:, :, 1] = result[:, :, 1] * 1.15  # Green boost
+        result[:, :, 0] = result[:, :, 0] * 0.75  # Strong blue reduction
+
+        # Moderate brightness reduction (not as dark as typical dusk)
+        result = result * 0.75
+
+        # Soft atmospheric blur
+        result = cv2.GaussianBlur(result, (5, 5), 0.8)
+
+        # Slightly reduced contrast (softer light)
+        mean_val = np.mean(result)
+        result = (result - mean_val) * 0.85 + mean_val
 
     elif lighting == 'night':
         # Night: Very dark, high contrast, blue shift
@@ -145,6 +256,23 @@ def _atmospheric_effect(img: np.ndarray, lighting: str) -> np.ndarray:
 
         # More blur due to low light and pupil dilation
         result = cv2.GaussianBlur(result, (5, 5), 1.2)
+
+    elif lighting == 'dubai_night':
+        # Dubai Night: LED billboard compensation, still relatively bright
+        # Dubai billboards have high-brightness LEDs that remain visible at night
+
+        # Less brightness reduction than typical night (LED billboards are bright)
+        result = result * 0.50  # Less aggressive than normal night (0.35)
+
+        # LED screens have high contrast and vivid colors
+        mean_val = np.mean(result)
+        result = (result - mean_val) * 1.3 + mean_val
+
+        # Slight cool shift (LED white balance)
+        result[:, :, 0] = result[:, :, 0] * 1.05  # Slight blue boost
+
+        # Moderate blur (city lighting provides ambient illumination)
+        result = cv2.GaussianBlur(result, (3, 3), 0.8)
 
     # Clip values to valid range and convert back to uint8
     result = np.clip(result, 0, 255).astype(np.uint8)

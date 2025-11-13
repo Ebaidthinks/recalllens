@@ -1,9 +1,71 @@
+import { useState, useEffect } from 'react'
+
 export default function EnvironmentControls({ params, onParamChange, disabled }) {
+  const [dubaiPresets, setDubaiPresets] = useState([])
+  const [loadingPresets, setLoadingPresets] = useState(false)
+
+  // Fetch Dubai presets on mount
+  useEffect(() => {
+    const fetchPresets = async () => {
+      setLoadingPresets(true)
+      try {
+        const response = await fetch('http://localhost:8000/dubai-presets')
+        const data = await response.json()
+        setDubaiPresets(data.presets || [])
+      } catch (error) {
+        console.error('Failed to load Dubai presets:', error)
+      } finally {
+        setLoadingPresets(false)
+      }
+    }
+
+    fetchPresets()
+  }, [])
+
+  const handlePresetChange = (presetId) => {
+    if (!presetId) return
+
+    const preset = dubaiPresets.find(p => p.id === presetId)
+    if (preset) {
+      // Apply all preset values
+      onParamChange('speed_kmh', preset.speed_kmh)
+      onParamChange('view_distance_m', preset.view_distance_m)
+      onParamChange('dwell_sec', preset.dwell_sec)
+      onParamChange('lighting', preset.lighting)
+      onParamChange('phone_distraction', preset.phone_distraction)
+    }
+  }
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
       <h2 className="text-lg font-semibold text-gray-900 mb-4">Environment Parameters</h2>
 
       <div className="space-y-6">
+        {/* Dubai Presets */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            🇦🇪 Dubai Road Presets
+          </label>
+          <select
+            onChange={(e) => handlePresetChange(e.target.value)}
+            disabled={disabled || loadingPresets}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed bg-white"
+            defaultValue=""
+          >
+            <option value="">Custom Settings</option>
+            {dubaiPresets.map(preset => (
+              <option key={preset.id} value={preset.id}>
+                {preset.name}
+              </option>
+            ))}
+          </select>
+          {dubaiPresets.length > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              Pre-configured for common Dubai locations
+            </p>
+          )}
+        </div>
+
         {/* Speed */}
         <div>
           <label className="flex justify-between items-center mb-2">
@@ -81,10 +143,20 @@ export default function EnvironmentControls({ params, onParamChange, disabled })
             disabled={disabled}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed bg-white"
           >
-            <option value="day">☀️ Day</option>
-            <option value="dusk">🌆 Dusk</option>
-            <option value="night">🌙 Night</option>
+            <optgroup label="Standard">
+              <option value="day">☀️ Day</option>
+              <option value="dusk">🌆 Dusk</option>
+              <option value="night">🌙 Night</option>
+            </optgroup>
+            <optgroup label="Dubai-Specific">
+              <option value="dubai_day">☀️ Dubai Day (High Glare)</option>
+              <option value="dubai_dusk">🌇 Dubai Dusk (Golden Hour)</option>
+              <option value="dubai_night">✨ Dubai Night (LED Bright)</option>
+            </optgroup>
           </select>
+          <p className="text-xs text-gray-500 mt-1">
+            Dubai options account for desert climate & LED billboards
+          </p>
         </div>
 
         {/* Distraction */}
@@ -99,7 +171,7 @@ export default function EnvironmentControls({ params, onParamChange, disabled })
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed bg-white"
           >
             <option value="low">🟢 Low</option>
-            <option value="medium">🟡 Medium</option>
+            <option value="med">🟡 Medium</option>
             <option value="high">🔴 High</option>
           </select>
         </div>
@@ -107,7 +179,7 @@ export default function EnvironmentControls({ params, onParamChange, disabled })
 
       <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
         <p className="text-xs text-blue-800">
-          <strong>Tip:</strong> Typical highway conditions: 100 km/h, 40m distance, 1.0s dwell
+          <strong>Tip:</strong> Use Dubai presets for accurate local conditions, or customize parameters manually
         </p>
       </div>
     </div>

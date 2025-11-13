@@ -52,9 +52,135 @@ def get_ocr_model(lang: str = 'en') -> PaddleOCR:
     return ocr_models[lang]
 
 
+def _is_arabic_char(char: str) -> bool:
+    """
+    Check if a character is Arabic.
+
+    Args:
+        char: Single character
+
+    Returns:
+        True if Arabic, False otherwise
+    """
+    code = ord(char)
+    return ((0x0600 <= code <= 0x06FF) or  # Arabic
+            (0x0750 <= code <= 0x077F) or  # Arabic Supplement
+            (0x08A0 <= code <= 0x08FF) or  # Arabic Extended-A
+            (0xFB50 <= code <= 0xFDFF) or  # Arabic Presentation Forms-A
+            (0xFE70 <= code <= 0xFEFF))    # Arabic Presentation Forms-B
+
+
+def _is_arabic_numeral(char: str) -> bool:
+    """
+    Check if a character is an Arabic-Indic numeral (٠-٩).
+
+    Args:
+        char: Single character
+
+    Returns:
+        True if Arabic numeral, False otherwise
+    """
+    code = ord(char)
+    return 0x0660 <= code <= 0x0669  # Arabic-Indic digits ٠-٩
+
+
+def _is_latin_char(char: str) -> bool:
+    """
+    Check if a character is Latin script (English).
+
+    Args:
+        char: Single character
+
+    Returns:
+        True if Latin, False otherwise
+    """
+    code = ord(char)
+    return ((0x0041 <= code <= 0x005A) or  # A-Z
+            (0x0061 <= code <= 0x007A) or  # a-z
+            (0x0030 <= code <= 0x0039))    # 0-9
+
+
+def _analyze_text_language(text: str) -> Dict[str, Any]:
+    """
+    Analyze language composition of text (Arabic vs English).
+
+    Common in Dubai billboards to have mixed Arabic/English text.
+
+    Args:
+        text: Text string to analyze
+
+    Returns:
+        Dictionary with language analysis:
+        {
+            'direction': 'rtl' or 'ltr',
+            'arabic_percentage': float (0-100),
+            'english_percentage': float (0-100),
+            'has_arabic_numerals': bool,
+            'language_mix': 'arabic_dominant' | 'english_dominant' | 'mixed' | 'other'
+        }
+    """
+    if not text:
+        return {
+            'direction': 'ltr',
+            'arabic_percentage': 0.0,
+            'english_percentage': 0.0,
+            'has_arabic_numerals': False,
+            'language_mix': 'other'
+        }
+
+    arabic_chars = 0
+    latin_chars = 0
+    arabic_numerals = 0
+    total_chars = 0
+
+    for char in text:
+        if char.isspace():  # Skip whitespace
+            continue
+
+        total_chars += 1
+
+        if _is_arabic_char(char):
+            arabic_chars += 1
+        elif _is_arabic_numeral(char):
+            arabic_numerals += 1
+            arabic_chars += 1  # Count numerals as Arabic
+        elif _is_latin_char(char):
+            latin_chars += 1
+
+    if total_chars == 0:
+        total_chars = 1  # Avoid division by zero
+
+    arabic_pct = (arabic_chars / total_chars) * 100
+    english_pct = (latin_chars / total_chars) * 100
+
+    # Determine direction (RTL if more than 30% Arabic)
+    direction = 'rtl' if arabic_pct > 30 else 'ltr'
+
+    # Determine language mix
+    if arabic_pct > 70:
+        language_mix = 'arabic_dominant'
+    elif english_pct > 70:
+        language_mix = 'english_dominant'
+    elif arabic_pct > 20 and english_pct > 20:
+        language_mix = 'mixed'  # Common in Dubai: "SALE تخفيضات"
+    else:
+        language_mix = 'other'
+
+    return {
+        'direction': direction,
+        'arabic_percentage': arabic_pct,
+        'english_percentage': english_pct,
+        'has_arabic_numerals': arabic_numerals > 0,
+        'language_mix': language_mix
+    }
+
+
 def _detect_text_direction(text: str) -> str:
     """
     Detect if text is RTL (Arabic/Hebrew) or LTR.
+
+    NOTE: This function is kept for backward compatibility.
+    Use _analyze_text_language() for more detailed analysis.
 
     Args:
         text: Text string to analyze
@@ -62,28 +188,8 @@ def _detect_text_direction(text: str) -> str:
     Returns:
         'rtl' or 'ltr'
     """
-    # Arabic Unicode range: 0600-06FF, 0750-077F, 08A0-08FF, FB50-FDFF, FE70-FEFF
-    # Hebrew Unicode range: 0590-05FF
-    rtl_chars = 0
-    total_chars = 0
-
-    for char in text:
-        code = ord(char)
-        total_chars += 1
-
-        # Check if character is Arabic or Hebrew
-        if ((0x0600 <= code <= 0x06FF) or
-            (0x0750 <= code <= 0x077F) or
-            (0x08A0 <= code <= 0x08FF) or
-            (0xFB50 <= code <= 0xFDFF) or
-            (0xFE70 <= code <= 0xFEFF) or
-            (0x0590 <= code <= 0x05FF)):
-            rtl_chars += 1
-
-    # If more than 30% of characters are RTL, consider it RTL text
-    if total_chars > 0 and (rtl_chars / total_chars) > 0.3:
-        return 'rtl'
-    return 'ltr'
+    analysis = _analyze_text_language(text)
+    return analysis['direction']
 
 
 def _calculate_bbox_height(bbox: List[List[int]]) -> int:
@@ -222,15 +328,35 @@ def extract_text_tokens(frames: Union[List[np.ndarray], np.ndarray]) -> Dict[str
         logo_visible = False
         brand_color_match = 0.0
 
+        # Analyze overall language composition (useful for Dubai market)
+        all_text = ' '.join([w['text'] for w in words_detected])
+        language_analysis = _analyze_text_language(all_text)
+
+        # Count Arabic vs English words
+        arabic_words = sum(1 for w in words_detected if _analyze_text_language(w['text'])['language_mix'] in ['arabic_dominant', 'mixed'])
+        english_words = sum(1 for w in words_detected if _analyze_text_language(w['text'])['language_mix'] == 'english_dominant')
+
         result = {
             'words_detected': words_detected,
             'logo_visible': logo_visible,
-            'brand_color_match': brand_color_match
+            'brand_color_match': brand_color_match,
+            'language_analysis': {
+                'overall_direction': language_analysis['direction'],
+                'arabic_percentage': language_analysis['arabic_percentage'],
+                'english_percentage': language_analysis['english_percentage'],
+                'has_arabic_numerals': language_analysis['has_arabic_numerals'],
+                'language_mix': language_analysis['language_mix'],
+                'arabic_word_count': arabic_words,
+                'english_word_count': english_words,
+                'total_word_count': len(words_detected)
+            }
         }
 
         logger.info(
             f"OCR complete: {len(words_detected)} words detected, "
-            f"{sum(1 for w in words_detected if w['legible'])} legible"
+            f"{sum(1 for w in words_detected if w['legible'])} legible | "
+            f"Language: {language_analysis['language_mix']} "
+            f"(AR:{language_analysis['arabic_percentage']:.0f}% EN:{language_analysis['english_percentage']:.0f}%)"
         )
 
         return result
@@ -250,7 +376,17 @@ def _empty_result() -> Dict[str, Any]:
     return {
         'words_detected': [],
         'logo_visible': False,
-        'brand_color_match': 0.0
+        'brand_color_match': 0.0,
+        'language_analysis': {
+            'overall_direction': 'ltr',
+            'arabic_percentage': 0.0,
+            'english_percentage': 0.0,
+            'has_arabic_numerals': False,
+            'language_mix': 'other',
+            'arabic_word_count': 0,
+            'english_word_count': 0,
+            'total_word_count': 0
+        }
     }
 
 

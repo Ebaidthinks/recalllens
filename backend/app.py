@@ -23,7 +23,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 # Import service functions
-from services.simulate import simulate_view
+from services.simulate import simulate_view, list_dubai_presets, get_dubai_preset
 from services.ocr import extract_text_tokens
 from services.salience import analyze_salience
 from services.memory import compute_recall
@@ -92,7 +92,7 @@ class EnvironmentParams(BaseModel):
     lighting: str = Field(
         ...,
         description="Lighting condition",
-        pattern="^(day|dusk|night)$"
+        pattern="^(day|dusk|night|dubai_day|dubai_dusk|dubai_night)$"
     )
     phone_distraction: str = Field(
         ...,
@@ -102,7 +102,7 @@ class EnvironmentParams(BaseModel):
 
     @validator('lighting')
     def validate_lighting(cls, v):
-        allowed = ['day', 'dusk', 'night']
+        allowed = ['day', 'dusk', 'night', 'dubai_day', 'dubai_dusk', 'dubai_night']
         if v not in allowed:
             raise ValueError(f'lighting must be one of {allowed}')
         return v
@@ -173,6 +173,7 @@ async def root():
         "status": "operational",
         "endpoints": {
             "analyze": "/analyze",
+            "dubai_presets": "/dubai-presets",
             "files": "/files/{filename}",
             "health": "/health"
         }
@@ -298,6 +299,28 @@ async def health_check():
     return health_status
 
 
+@app.get("/dubai-presets")
+async def get_dubai_road_presets():
+    """
+    Get Dubai road presets for common highways and urban areas.
+
+    Returns list of preconfigured settings optimized for:
+    - Sheikh Zayed Road (SZR)
+    - Al Khail Road
+    - JBR Urban
+    - Dubai Marina
+
+    Each preset includes calibrated speed, distance, dwell time,
+    lighting, and distraction levels typical for that location.
+    """
+    presets = list_dubai_presets()
+    return {
+        "presets": presets,
+        "count": len(presets),
+        "description": "Pre-configured settings for common Dubai viewing conditions"
+    }
+
+
 def _run_analysis_pipeline(
     job_id: str,
     input_path: Path,
@@ -396,7 +419,7 @@ async def analyze_advertisement(
     speed_kmh: float = Form(..., ge=60, le=140),
     view_distance_m: float = Form(..., ge=20, le=60),
     dwell_sec: float = Form(..., ge=0.5, le=2.0),
-    lighting: str = Form(..., pattern="^(day|dusk|night)$"),
+    lighting: str = Form(..., pattern="^(day|dusk|night|dubai_day|dubai_dusk|dubai_night)$"),
     phone_distraction: str = Form(..., pattern="^(low|med|high)$")
 ):
     """
