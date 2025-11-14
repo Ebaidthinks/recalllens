@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE_URL } from '../config'
 
 export default function EnvironmentControls({ params, onParamChange, disabled }) {
   const [dubaiPresets, setDubaiPresets] = useState([])
@@ -9,7 +10,7 @@ export default function EnvironmentControls({ params, onParamChange, disabled })
     const fetchPresets = async () => {
       setLoadingPresets(true)
       try {
-        const response = await fetch('http://localhost:8000/dubai-presets')
+        const response = await fetch(`${API_BASE_URL}/dubai-presets`)
         const data = await response.json()
         setDubaiPresets(data.presets || [])
       } catch (error) {

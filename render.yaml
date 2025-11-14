@@ -1,0 +1,17 @@
+services:
+  # Backend API Service
+  - type: web
+    name: recalllens-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: oregon
+    plan: free  # or 'starter' for $7/month (no cold starts)
+    branch: main
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10
+      - key: PORT
+        value: 8000
+    healthCheckPath: /health
+    autoDeploy: true

@@ -3,8 +3,7 @@ import UploadSection from './components/UploadSection'
 import EnvironmentControls from './components/EnvironmentControls'
 import ResultsDashboard from './components/ResultsDashboard'
 import axios from 'axios'
-
-const API_BASE_URL = 'http://localhost:8000'
+import { API_BASE_URL } from './config'
 
 function App() {
   const [uploadedFile, setUploadedFile] = useState(null)

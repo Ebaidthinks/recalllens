@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Assets (will be generated at runtime)
+assets/outputs/*
+assets/uploads/*
+
+# Keep sample directories but ignore contents
+assets/samples/*
+!assets/samples/.gitkeep
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+README.md
+
+# Validation
+validate.py
+test_pipeline.py

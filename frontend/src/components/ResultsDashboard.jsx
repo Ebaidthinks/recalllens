@@ -5,8 +5,7 @@ import LegibilityTab from './LegibilityTab'
 import AttentionTab from './AttentionTab'
 import MemoryTab from './MemoryTab'
 import FixesTab from './FixesTab'
-
-const API_BASE_URL = 'http://localhost:8000'
+import { API_BASE_URL } from '../config'
 
 export default function ResultsDashboard({ result, originalImageUrl }) {
   const [activeTab, setActiveTab] = useState('legibility')
