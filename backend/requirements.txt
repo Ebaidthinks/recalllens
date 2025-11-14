@@ -1,17 +1,33 @@
+# Core Framework
 fastapi
 uvicorn[standard]
+python-multipart
+
+# Data Processing
 numpy
-opencv-python
 Pillow
-torch
-torchvision
-transformers
+
+# Computer Vision & ML
+# Note: PyTorch CPU-only version installed separately in Dockerfile for free tier optimization
+# torch==2.1.0 (installed via CPU wheel)
+# torchvision==0.16.0 (installed via CPU wheel)
+opencv-python-headless  # Headless version (no GUI deps) for Docker
+pytorch-grad-cam  # Installed after PyTorch in Dockerfile
+
+# OCR & Text Processing
 paddleocr
+transformers
+
+# Scientific Computing
 scikit-image
 scipy
-ffmpeg-python
+
+# Report Generation
 reportlab
+
+# Configuration
 pydantic
 pydantic-settings
-python-multipart
-pytorch-grad-cam
+
+# Video Processing
+ffmpeg-python

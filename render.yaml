@@ -5,13 +5,22 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    region: oregon
-    plan: free  # or 'starter' for $7/month (no cold starts)
-    branch: main
+    region: oregon  # US West - good latency
+    plan: free  # Free tier with cold starts, or 'starter' for $7/month
+    branch: main  # Change to your branch if needed
     envVars:
       - key: PYTHON_VERSION
-        value: 3.10
+        value: "3.10"
       - key: PORT
-        value: 8000
+        value: "8000"
+      - key: WEB_CONCURRENCY  # Limit workers for free tier
+        value: "1"
     healthCheckPath: /health
     autoDeploy: true
+    buildFilter:
+      paths:
+        - backend/**
+      ignoredPaths:
+        - backend/test_pipeline.py
+        - backend/validate.py
+        - backend/**/*.md

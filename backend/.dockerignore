@@ -10,6 +10,7 @@ ENV/
 *.egg-info/
 dist/
 build/
+*.egg
 
 # IDE
 .vscode/
@@ -22,23 +23,31 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
+test_pipeline.py
+validate.py
 
 # Assets (will be generated at runtime)
 assets/outputs/*
+!assets/outputs/.gitkeep
 assets/uploads/*
-
-# Keep sample directories but ignore contents
+!assets/uploads/.gitkeep
 assets/samples/*
 !assets/samples/.gitkeep
 
 # Git
 .git/
 .gitignore
+.gitattributes
 
 # Documentation
 *.md
 README.md
+DEPLOYMENT.md
 
-# Validation
-validate.py
-test_pipeline.py
+# Docker
+Dockerfile
+.dockerignore
+
+# Logs
+*.log
+logs/
