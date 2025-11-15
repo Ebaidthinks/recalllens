@@ -3,11 +3,11 @@ services:
   - type: web
     name: recalllens-api
     runtime: docker
-    dockerfilePath: ./backend/Dockerfile
+    dockerfilePath: ./Dockerfile
     dockerContext: ./backend
     region: oregon  # US West - good latency
     plan: free  # Free tier with cold starts, or 'starter' for $7/month
-    branch: main  # Change to your branch if needed
+    branch: claude/setup-recalllens-project-011CV3syhrDNDgPaforLms9A
     envVars:
       - key: PYTHON_VERSION
         value: "3.10"
